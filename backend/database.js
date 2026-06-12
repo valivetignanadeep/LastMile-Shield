@@ -47,12 +47,11 @@ const dbRun = async (query, params = []) => {
 
   // 1. Insert Rider
   if (query.match(/INSERT\s+INTO\s+riders/i)) {
-    const [name, email, platform, vehicle_type, city, zone, preferred_language, rating, wallet_balance, upi_id] = params;
-    const aadhar_number = params[10] || null;
-    const address = params[11] || null;
+    const [name, email, platform, vehicle_type, city, zone, preferred_language, rating, upi_id, aadhar_number, address] = params;
+    const wallet_balance = 0.0;
     
-    // Check unique email constraint
-    const emailExists = data.riders.some(r => r.email === email);
+    // Check unique email constraint case-insensitively
+    const emailExists = data.riders.some(r => r.email.toLowerCase() === email.toLowerCase());
     if (emailExists) {
       throw new Error('UNIQUE constraint failed: riders.email');
     }
@@ -300,13 +299,13 @@ const dbGet = async (query, params = []) => {
   // Support lookup of rider by email
   if (query.match(/SELECT\s+\*\s+FROM\s+riders\s+WHERE\s+email\s*=\s*\?/i)) {
     const [email] = params;
-    return data.riders.find(r => r.email === String(email)) || null;
+    return data.riders.find(r => r.email.toLowerCase() === String(email).toLowerCase()) || null;
   }
 
   // Support lookup of rider ID by email
   if (query.match(/SELECT\s+id\s+FROM\s+riders\s+WHERE\s+email\s*=\s*\?/i)) {
     const [email] = params;
-    const rider = data.riders.find(r => r.email === String(email));
+    const rider = data.riders.find(r => r.email.toLowerCase() === String(email).toLowerCase());
     return rider ? { id: rider.id } : null;
   }
 
