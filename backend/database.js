@@ -1,7 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 
-const dbPath = path.join(__dirname, 'lastmile_shield_db.json');
+const isVercel = process.env.VERCEL || process.env.NOW_BUILDER;
+const dbPath = isVercel 
+  ? path.join('/tmp', 'lastmile_shield_db.json') 
+  : path.join(__dirname, 'lastmile_shield_db.json');
 
 // Memory cache of our tables
 let data = {
@@ -9,7 +12,8 @@ let data = {
   policies: [],
   disruption_events: [],
   claims: [],
-  location_pings: []
+  location_pings: [],
+  orders: []
 };
 
 // Helper to save cache to file
@@ -27,6 +31,9 @@ const loadFromDbFile = () => {
     if (fs.existsSync(dbPath)) {
       const fileContent = fs.readFileSync(dbPath, 'utf-8');
       data = JSON.parse(fileContent);
+      if (!data.orders) {
+        data.orders = [];
+      }
     }
   } catch (err) {
     console.error('Failed to read database file:', err.message);
@@ -40,19 +47,21 @@ const dbRun = async (query, params = []) => {
 
   // 1. Insert Rider
   if (query.match(/INSERT\s+INTO\s+riders/i)) {
-    const [name, phone, platform, vehicle_type, city, zone, preferred_language, rating, wallet_balance, upi_id] = params;
+    const [name, email, platform, vehicle_type, city, zone, preferred_language, rating, wallet_balance, upi_id] = params;
+    const aadhar_number = params[10] || null;
+    const address = params[11] || null;
     
-    // Check unique phone constraint
-    const phoneExists = data.riders.some(r => r.phone === phone);
-    if (phoneExists) {
-      throw new Error('UNIQUE constraint failed: riders.phone');
+    // Check unique email constraint
+    const emailExists = data.riders.some(r => r.email === email);
+    if (emailExists) {
+      throw new Error('UNIQUE constraint failed: riders.email');
     }
 
     lastID = data.riders.length > 0 ? Math.max(...data.riders.map(r => r.id)) + 1 : 1;
     data.riders.push({
       id: lastID,
       name,
-      phone,
+      email,
       platform,
       vehicle_type,
       city,
@@ -61,6 +70,8 @@ const dbRun = async (query, params = []) => {
       rating: rating || 4.8,
       wallet_balance: wallet_balance || 0.0,
       upi_id,
+      aadhar_number,
+      address,
       joined_at: new Date().toISOString()
     });
     changes = 1;
@@ -152,6 +163,16 @@ const dbRun = async (query, params = []) => {
       changes = 1;
     }
   }
+  
+  // 7. Update Order Claim Status
+  else if (query.match(/UPDATE\s+orders\s+SET\s+claim_status\s*=\s*\?\s*WHERE\s+id\s*=\s*\?/i)) {
+    const [claim_status, id] = params;
+    const order = data.orders.find(o => o.id === parseInt(id));
+    if (order) {
+      order.claim_status = String(claim_status);
+      changes = 1;
+    }
+  }
 
   saveToDbFile();
   return { id: lastID, changes };
@@ -166,14 +187,14 @@ const dbAll = async (query, params = []) => {
   }
 
   // 2. Get global claims history table
-  if (query.match(/SELECT\s+c\.\*,\s*r\.name\s+as\s+rider_name,\s*r\.phone/i)) {
+  if (query.match(/SELECT\s+c\.\*,\s*r\.name\s+as\s+rider_name,\s*r\.(phone|email)/i)) {
     return data.claims.map(c => {
       const rider = data.riders.find(r => r.id === c.rider_id) || {};
       const event = data.disruption_events.find(e => e.id === c.disruption_event_id) || {};
       return {
         ...c,
         rider_name: rider.name || 'Unknown',
-        rider_phone: rider.phone || '',
+        rider_email: rider.email || '',
         platform: rider.platform || '',
         event_type: event.type || 'Disruption',
         event_desc: event.description || ''
@@ -193,7 +214,7 @@ const dbAll = async (query, params = []) => {
           ...p,
           rider_id: r.id,
           name: r.name,
-          phone: r.phone,
+          email: r.email,
           city: r.city,
           zone: r.zone,
           platform: r.platform,
@@ -251,6 +272,19 @@ const dbAll = async (query, params = []) => {
     }).sort((a, b) => new Date(b.triggered_at) - new Date(a.triggered_at));
   }
 
+  // 8. Get all orders for a specific rider
+  if (query.match(/SELECT\s+\*\s+FROM\s+orders\s+WHERE\s+rider_id\s*=\s*\?/i)) {
+    const [rider_id] = params;
+    return data.orders
+      .filter(o => o.rider_id === parseInt(rider_id))
+      .sort((a, b) => new Date(b.delivered_at) - new Date(a.delivered_at));
+  }
+
+  // 9. Get all disruption events
+  if (query.match(/SELECT\s+\*\s+FROM\s+disruption_events/i)) {
+    return [...data.disruption_events];
+  }
+
   return [];
 };
 
@@ -261,6 +295,33 @@ const dbGet = async (query, params = []) => {
   if (query.match(/SELECT\s+\*\s+FROM\s+riders\s+WHERE\s+id\s*=\s*\?/i)) {
     const [id] = params;
     return data.riders.find(r => r.id === parseInt(id)) || null;
+  }
+
+  // Support lookup of rider by email
+  if (query.match(/SELECT\s+\*\s+FROM\s+riders\s+WHERE\s+email\s*=\s*\?/i)) {
+    const [email] = params;
+    return data.riders.find(r => r.email === String(email)) || null;
+  }
+
+  // Support lookup of rider ID by email
+  if (query.match(/SELECT\s+id\s+FROM\s+riders\s+WHERE\s+email\s*=\s*\?/i)) {
+    const [email] = params;
+    const rider = data.riders.find(r => r.email === String(email));
+    return rider ? { id: rider.id } : null;
+  }
+
+  // Support lookup of rider ID by Aadhaar number
+  if (query.match(/SELECT\s+id\s+FROM\s+riders\s+WHERE\s+aadhar_number\s*=\s*\?/i)) {
+    const [aadharNumber] = params;
+    const rider = data.riders.find(r => r.aadhar_number === String(aadharNumber));
+    return rider ? { id: rider.id } : null;
+  }
+
+  // Support lookup of active policy ID by rider_id
+  if (query.match(/SELECT\s+id\s+FROM\s+policies\s+WHERE\s+rider_id\s*=\s*\?\s*AND\s+status\s*=\s*"Active"/i)) {
+    const [rider_id] = params;
+    const policy = data.policies.find(p => p.rider_id === parseInt(rider_id) && p.status === 'Active');
+    return policy ? { id: policy.id } : null;
   }
 
   // 2. Get single active policy for rider
@@ -309,6 +370,12 @@ const dbGet = async (query, params = []) => {
     return null;
   }
 
+  // Support lookup of order by id
+  if (query.match(/SELECT\s+\*\s+FROM\s+orders\s+WHERE\s+id\s*=\s*\?/i)) {
+    const [id] = params;
+    return data.orders.find(o => o.id === parseInt(id)) || null;
+  }
+
   // 7. General Rider Counts
   if (query.match(/SELECT\s+COUNT\(\*\)\s+as\s+count\s+FROM\s+riders/i)) {
     return { count: data.riders.length };
@@ -334,11 +401,70 @@ const dbGet = async (query, params = []) => {
   return null;
 };
 
+const seedMockOrders = () => {
+  const formatDate = (daysAgo, hours, minutes) => {
+    const d = new Date();
+    d.setDate(d.getDate() - daysAgo);
+    d.setHours(hours, minutes, 0, 0);
+    return d.toISOString();
+  };
+
+  data.orders = [
+    // Rider 1: Rajesh Kumar (Zomato)
+    { id: 1, rider_id: 1, order_number: 'ORD-ZOM-101', store_name: "McDonald's Noida", customer_address: "B-402, Sector 62, Noida", delivered_at: formatDate(1, 14, 30), earnings: 45.0, disruption_type: 'None', disruption_severity: 'None', disruption_compensation: 0.0, claim_status: 'Unclaimed' },
+    { id: 2, rider_id: 1, order_number: 'ORD-ZOM-102', store_name: "Haldiram's Noida", customer_address: "Flat 12, Block C, Sector 62, Noida", delivered_at: formatDate(2, 16, 15), earnings: 55.0, disruption_type: 'Weather', disruption_severity: 'Severe', disruption_compensation: 80.0, claim_status: 'Unclaimed' },
+    { id: 3, rider_id: 1, order_number: 'ORD-ZOM-103', store_name: "Pizza Hut Noida", customer_address: "Noida Authority Office, Noida", delivered_at: formatDate(3, 19, 45), earnings: 60.0, disruption_type: 'Traffic', disruption_severity: 'Moderate', disruption_compensation: 40.0, claim_status: 'Unclaimed' },
+    { id: 4, rider_id: 1, order_number: 'ORD-ZOM-104', store_name: "Burger King Noida", customer_address: "H-15, Sector 62, Noida", delivered_at: formatDate(4, 21, 0), earnings: 40.0, disruption_type: 'Curfew', disruption_severity: 'Severe', disruption_compensation: 120.0, claim_status: 'Unclaimed' },
+    { id: 5, rider_id: 1, order_number: 'ORD-ZOM-105', store_name: "Chaayos Noida", customer_address: "Stellar IT Park, Sector 62, Noida", delivered_at: formatDate(0, 11, 20), earnings: 35.0, disruption_type: 'None', disruption_severity: 'None', disruption_compensation: 0.0, claim_status: 'Unclaimed' },
+
+    // Rider 2: Suresh Patel (Swiggy)
+    { id: 6, rider_id: 2, order_number: 'ORD-SWI-201', store_name: "KFC Andheri", customer_address: "Juhu Tara Road, Mumbai", delivered_at: formatDate(1, 20, 10), earnings: 50.0, disruption_type: 'Outage', disruption_severity: 'Severe', disruption_compensation: 90.0, claim_status: 'Unclaimed' },
+    { id: 7, rider_id: 2, order_number: 'ORD-SWI-202', store_name: "Subway Versova", customer_address: "Versova Beach Road, Mumbai", delivered_at: formatDate(2, 13, 40), earnings: 40.0, disruption_type: 'None', disruption_severity: 'None', disruption_compensation: 0.0, claim_status: 'Unclaimed' },
+    { id: 8, rider_id: 2, order_number: 'ORD-SWI-203', store_name: "Starbucks Complex", customer_address: "Lokhandwala Complex, Mumbai", delivered_at: formatDate(3, 15, 0), earnings: 65.0, disruption_type: 'Traffic', disruption_severity: 'Severe', disruption_compensation: 60.0, claim_status: 'Unclaimed' },
+
+    // Rider 3: Amit Sharma (Zepto)
+    { id: 9, rider_id: 3, order_number: 'ORD-ZEP-301', store_name: "Zepto Noida 18 Store", customer_address: "Pocket F, Sector 18, Noida", delivered_at: formatDate(1, 15, 20), earnings: 35.0, disruption_type: 'None', disruption_severity: 'None', disruption_compensation: 0.0, claim_status: 'Unclaimed' },
+    { id: 10, rider_id: 3, order_number: 'ORD-ZEP-302', store_name: "Zepto Noida 18 Store", customer_address: "Wave Silver Tower, Sector 18, Noida", delivered_at: formatDate(2, 17, 50), earnings: 38.0, disruption_type: 'Weather', disruption_severity: 'Severe', disruption_compensation: 80.0, claim_status: 'Unclaimed' },
+
+    // Rider 4: Vikram Singh (Blinkit)
+    { id: 11, rider_id: 4, order_number: 'ORD-BLI-401', store_name: "Blinkit Saket Store", customer_address: "M-Block, Saket, Delhi", delivered_at: formatDate(1, 20, 30), earnings: 40.0, disruption_type: 'Curfew', disruption_severity: 'Extreme', disruption_compensation: 150.0, claim_status: 'Unclaimed' },
+    { id: 12, rider_id: 4, order_number: 'ORD-BLI-402', store_name: "Blinkit Saket Store", customer_address: "J-Block, Saket, Delhi", delivered_at: formatDate(2, 11, 15), earnings: 42.0, disruption_type: 'None', disruption_severity: 'None', disruption_compensation: 0.0, claim_status: 'Unclaimed' }
+  ];
+};
+
 // Seed function inside database initializing cache file if not present
 const initDb = async () => {
   if (fs.existsSync(dbPath)) {
     console.log('Database cache file loaded.');
     loadFromDbFile();
+    
+    // Automatic migration to add aadhar_number, address, and email to legacy caches
+    let migrated = false;
+    data.riders.forEach(r => {
+      if (r.aadhar_number === undefined) {
+        r.aadhar_number = r.id === 1 ? '123456789012' : r.id === 2 ? '987654321098' : r.id === 3 ? '111122223333' : '444455556666';
+        migrated = true;
+      }
+      if (r.address === undefined) {
+        r.address = r.id === 1 ? 'Block C, Sector 62, Noida, UP' : r.id === 2 ? 'Linking Road, Bandra West, Mumbai, MH' : r.id === 3 ? 'Market Road, Sector 18, Noida, UP' : 'Near PVR Cinema, Saket, New Delhi';
+        migrated = true;
+      }
+      if (r.email === undefined) {
+        r.email = r.phone ? (r.phone === '9876543210' ? 'rajesh.kumar@gmail.com' : r.phone === '9876543211' ? 'suresh.patel@gmail.com' : r.phone === '9876543212' ? 'amit.sharma@gmail.com' : r.phone === '9876543213' ? 'vikram.singh@gmail.com' : `${r.name.toLowerCase().replace(/\s+/g, '')}@gmail.com`) : (r.id === 1 ? 'rajesh.kumar@gmail.com' : r.id === 2 ? 'suresh.patel@gmail.com' : r.id === 3 ? 'amit.sharma@gmail.com' : 'vikram.singh@gmail.com');
+        delete r.phone;
+        migrated = true;
+      }
+    });
+
+    if (!data.orders || data.orders.length === 0) {
+      seedMockOrders();
+      migrated = true;
+    }
+
+    if (migrated) {
+      saveToDbFile();
+      console.log('Database schema migrated to include Aadhaar, Address, and Orders fields.');
+    }
     return;
   }
 
@@ -355,10 +481,10 @@ const initDb = async () => {
 
   // 1. Seed Riders
   data.riders = [
-    { id: 1, name: 'Rajesh Kumar', phone: '9876543210', platform: 'Zomato', vehicle_type: 'Petrol Bike', city: 'Noida', zone: 'Sector 62', preferred_language: 'hi', rating: 4.9, wallet_balance: 150.0, upi_id: 'rajesh@okaxis', joined_at: oneWeekAgo.toISOString() },
-    { id: 2, name: 'Suresh Patel', phone: '9876543211', platform: 'Swiggy', vehicle_type: 'Electric Scooter', city: 'Mumbai', zone: 'Andheri West', preferred_language: 'en', rating: 4.7, wallet_balance: 300.0, upi_id: 'suresh@okpaytm', joined_at: oneWeekAgo.toISOString() },
-    { id: 3, name: 'Amit Sharma', phone: '9876543212', platform: 'Zepto', vehicle_type: 'Bicycle', city: 'Noida', zone: 'Sector 18', preferred_language: 'hi', rating: 4.8, wallet_balance: 0.0, upi_id: 'amit@okicici', joined_at: oneWeekAgo.toISOString() },
-    { id: 4, name: 'Vikram Singh', phone: '9876543213', platform: 'Blinkit', vehicle_type: 'Petrol Bike', city: 'Delhi', zone: 'Saket', preferred_language: 'hi', rating: 4.6, wallet_balance: 50.0, upi_id: 'vikram@oksbi', joined_at: oneWeekAgo.toISOString() }
+    { id: 1, name: 'Rajesh Kumar', email: 'rajesh.kumar@gmail.com', platform: 'Zomato', vehicle_type: 'Petrol Bike', city: 'Noida', zone: 'Sector 62', preferred_language: 'hi', rating: 4.9, wallet_balance: 150.0, upi_id: 'rajesh@okaxis', aadhar_number: '123456789012', address: 'Block C, Sector 62, Noida, UP', joined_at: oneWeekAgo.toISOString() },
+    { id: 2, name: 'Suresh Patel', email: 'suresh.patel@gmail.com', platform: 'Swiggy', vehicle_type: 'Electric Scooter', city: 'Mumbai', zone: 'Andheri West', preferred_language: 'en', rating: 4.7, wallet_balance: 300.0, upi_id: 'suresh@okpaytm', aadhar_number: '987654321098', address: 'Linking Road, Bandra West, Mumbai, MH', joined_at: oneWeekAgo.toISOString() },
+    { id: 3, name: 'Amit Sharma', email: 'amit.sharma@gmail.com', platform: 'Zepto', vehicle_type: 'Bicycle', city: 'Noida', zone: 'Sector 18', preferred_language: 'hi', rating: 4.8, wallet_balance: 0.0, upi_id: 'amit@okicici', aadhar_number: '111122223333', address: 'Market Road, Sector 18, Noida, UP', joined_at: oneWeekAgo.toISOString() },
+    { id: 4, name: 'Vikram Singh', email: 'vikram.singh@gmail.com', platform: 'Blinkit', vehicle_type: 'Petrol Bike', city: 'Delhi', zone: 'Saket', preferred_language: 'hi', rating: 4.6, wallet_balance: 50.0, upi_id: 'vikram@oksbi', aadhar_number: '444455556666', address: 'Near PVR Cinema, Saket, New Delhi', joined_at: oneWeekAgo.toISOString() }
   ];
 
   // 2. Seed Policies
@@ -390,6 +516,9 @@ const initDb = async () => {
     { id: 3, rider_id: 3, latitude: 28.5702, longitude: 77.3261, active_status: 'Online', pinged_at: oneWeekAgo.toISOString() },
     { id: 4, rider_id: 4, latitude: 28.5241, longitude: 77.2065, active_status: 'Online', pinged_at: oneWeekAgo.toISOString() }
   ];
+
+  // 6. Seed Orders
+  seedMockOrders();
 
   saveToDbFile();
   console.log('JSON database seeded and written to', dbPath);
