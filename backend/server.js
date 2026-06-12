@@ -230,10 +230,14 @@ app.post('/api/auth/send-otp', async (req, res) => {
     const msg = `Hello,\n\nYour LastMile Shield verification code is:\n\n✨ [ ${boldOtp} ] ✨\n\nValid for 5 minutes.`;
 
     await sendEmail(email, 'LastMile Shield Verification Code', msg);
+    const web3Key = (process.env.WEB3FORMS_KEY && process.env.WEB3FORMS_KEY !== 'your_web3forms_access_key') 
+      ? process.env.WEB3FORMS_KEY 
+      : 'e566395b-65fc-4993-84d6-309664f84818';
+
     res.json({ 
       message: 'OTP sent to your email.',
       otp: otp,
-      web3formsKey: (process.env.WEB3FORMS_KEY && process.env.WEB3FORMS_KEY !== 'your_web3forms_access_key') ? process.env.WEB3FORMS_KEY : undefined
+      web3formsKey: web3Key
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -327,10 +331,14 @@ app.post('/api/auth/aadhar-send-otp', async (req, res) => {
       const msg = `Hello,\n\nYour Aadhaar verification code is:\n\n✨ [ ${boldOtp} ] ✨\n\nValid for 5 minutes.`;
       await sendEmail(email, 'Aadhaar Verification Code', msg);
     }
+    const web3Key = (process.env.WEB3FORMS_KEY && process.env.WEB3FORMS_KEY !== 'your_web3forms_access_key') 
+      ? process.env.WEB3FORMS_KEY 
+      : 'e566395b-65fc-4993-84d6-309664f84818';
+
     res.json({ 
       message: 'OTP sent to your email.',
       otp: otp,
-      web3formsKey: (process.env.WEB3FORMS_KEY && process.env.WEB3FORMS_KEY !== 'your_web3forms_access_key') ? process.env.WEB3FORMS_KEY : undefined
+      web3formsKey: web3Key
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
