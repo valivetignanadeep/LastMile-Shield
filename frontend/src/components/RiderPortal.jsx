@@ -238,8 +238,7 @@ export default function RiderPortal({ activeRiderId, setActiveRiderId, refreshTr
   const [regCity, setRegCity] = useState('Noida');
   const [regZone, setRegZone] = useState('Sector 62');
   const [regUpi, setRegUpi] = useState('');
-  // Simulated Email Toast state
-  const [smsOverlay, setSmsOverlay] = useState({ visible: false, text: '', code: '' });
+
 
   // Pricing Quote State
   const [quote, setQuote] = useState(null);
@@ -408,13 +407,7 @@ export default function RiderPortal({ activeRiderId, setActiveRiderId, refreshTr
           });
         }
 
-        if (data.otp && !data.web3formsKey) {
-          setSmsOverlay({
-            visible: true,
-            text: `${t.otpAlertDesc} ${data.otp}`,
-            code: data.otp
-          });
-        }
+
       } else {
         alert(data.error || 'Failed to send OTP.');
       }
@@ -451,9 +444,6 @@ export default function RiderPortal({ activeRiderId, setActiveRiderId, refreshTr
         setLoginEmail('');
         setLoginOtp('');
         setLoginOtpSent(false);
-        if (typeof setSmsOverlay === 'function') {
-          setSmsOverlay({ visible: false, text: '', code: '' });
-        }
       } else {
         alert(data.error || 'Invalid OTP.');
       }
@@ -484,9 +474,6 @@ export default function RiderPortal({ activeRiderId, setActiveRiderId, refreshTr
 
       if (res.ok) {
         setRegOtpVerified(true);
-        if (typeof setSmsOverlay === 'function') {
-          setSmsOverlay({ visible: false, text: '', code: '' });
-        }
         setRegStep(2); // Proceed to Aadhaar Verification step
       } else {
         alert(data.error || 'Invalid mobile verification code.');
@@ -536,13 +523,7 @@ export default function RiderPortal({ activeRiderId, setActiveRiderId, refreshTr
           });
         }
 
-        if (data.otp && !data.web3formsKey) {
-          setSmsOverlay({
-            visible: true,
-            text: `[Aadhaar Verification Link] ${t.otpAlertDesc} ${data.otp}`,
-            code: data.otp
-          });
-        }
+
       } else {
         alert(data.error || 'Failed to request Aadhaar check.');
       }
@@ -572,9 +553,6 @@ export default function RiderPortal({ activeRiderId, setActiveRiderId, refreshTr
 
       if (res.ok) {
         setRegAadharVerified(true);
-        if (typeof setSmsOverlay === 'function') {
-          setSmsOverlay({ visible: false, text: '', code: '' });
-        }
         setRegStep(3); // Proceed to Profile details and address step
       } else {
         alert(data.error || 'Invalid Aadhaar code.');
@@ -800,34 +778,17 @@ export default function RiderPortal({ activeRiderId, setActiveRiderId, refreshTr
             </div>
           </div>
 
-          {/* SMS Simulated Notification Overlay */}
-          {smsOverlay && smsOverlay.visible && (
-            <div 
-              onClick={() => {
-                if (authTab === 'login') setLoginOtp(smsOverlay.code);
-                else if (regStep === 1) setRegOtp(smsOverlay.code);
-                else if (regStep === 2) setRegAadharOtp(smsOverlay.code);
-                setSmsOverlay({ visible: false, text: '', code: '' });
-              }}
-              style={{ backgroundColor: '#eef8ff', border: '1px solid #90caf9', borderRadius: '12px', padding: '0.8rem', marginBottom: '1rem', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '0.2rem', animation: 'pulse 2s infinite' }}
-            >
-              <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#1565c0' }}>{t.otpAlertTitle}</span>
-              <span style={{ fontSize: '0.8rem', color: '#0d47a1' }}>
-                {smsOverlay.text} <span style={{ fontWeight: 'bold', textDecoration: 'underline' }}>({lang === 'hi' ? 'ऑटो-फिल के लिए यहां क्लिक करें' : 'Click to Auto-Fill'})</span>
-              </span>
-            </div>
-          )}
 
-          {/* Tab Selector */}
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', backgroundColor: 'var(--secondary-light)', borderRadius: '8px', padding: '0.2rem', marginBottom: '1.2rem' }}>
             <button 
-              onClick={() => { setAuthTab('login'); if (typeof setSmsOverlay === 'function') setSmsOverlay({ visible: false, text: '', code: '' }); }}
+              onClick={() => { setAuthTab('login'); }}
               style={{ padding: '0.5rem', fontSize: '0.85rem', fontWeight: 'bold', border: 'none', borderRadius: '6px', cursor: 'pointer', backgroundColor: authTab === 'login' ? '#fff' : 'transparent', color: authTab === 'login' ? 'var(--secondary)' : 'var(--text-secondary)' }}
             >
               🔒 {t.loginTab}
             </button>
             <button 
-              onClick={() => { setAuthTab('register'); if (typeof setSmsOverlay === 'function') setSmsOverlay({ visible: false, text: '', code: '' }); }}
+              onClick={() => { setAuthTab('register'); }}
               style={{ padding: '0.5rem', fontSize: '0.85rem', fontWeight: 'bold', border: 'none', borderRadius: '6px', cursor: 'pointer', backgroundColor: authTab === 'register' ? '#fff' : 'transparent', color: authTab === 'register' ? 'var(--secondary)' : 'var(--text-secondary)' }}
             >
               📝 {t.registerTab}
@@ -1176,20 +1137,7 @@ export default function RiderPortal({ activeRiderId, setActiveRiderId, refreshTr
         </div>
       </header>
 
-      {/* 2. SMS Simulated Notification Overlay */}
-      {smsOverlay && smsOverlay.visible && (
-        <div 
-          onClick={() => {
-            setSmsOverlay({ visible: false, text: '', code: '' });
-          }}
-          style={{ position: 'fixed', top: '70px', right: '20px', width: '350px', backgroundColor: '#eef8ff', border: '1px solid #90caf9', borderRadius: '12px', padding: '1rem', boxShadow: '0 8px 24px rgba(0,0,0,0.12)', cursor: 'pointer', zIndex: 1000, display: 'flex', flexDirection: 'column', gap: '0.2rem', animation: 'pulse 2s infinite' }}
-        >
-          <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#1565c0' }}>{t.otpAlertTitle}</span>
-          <span style={{ fontSize: '0.8rem', color: '#0d47a1' }}>
-            {smsOverlay.text}
-          </span>
-        </div>
-      )}
+
 
       {/* 3. Main Dashboard Grid */}
       <main className="dashboard-grid">
