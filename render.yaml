@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: lastmile-shield
+    env: node
+    buildCommand: npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /data/lastmile_shield_db.json
+    disk:
+      name: lastmile-shield-db-disk
+      mountPath: /data
+      sizeGB: 1

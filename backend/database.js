@@ -2,9 +2,15 @@ const fs = require('fs');
 const path = require('path');
 
 const isVercel = process.env.VERCEL || process.env.NOW_BUILDER;
-const dbPath = isVercel 
+const dbPath = process.env.DB_PATH || (isVercel 
   ? path.join('/tmp', 'lastmile_shield_db.json') 
-  : path.join(__dirname, 'lastmile_shield_db.json');
+  : path.join(__dirname, 'lastmile_shield_db.json'));
+
+// Ensure parent directory exists for database file
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
+}
 
 // Memory cache of our tables
 let data = {
